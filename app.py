@@ -2,56 +2,67 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 import os
-from utils.ai_mood import get_mood_explanation
+from utils.ai_mood import get_ai_mood_analysis
 from utils.pdf_export import export_moods_to_pdf
 from utils.speech_to_text import transcribe_audio_file
 
-CSV_FILE = "mood_logs.csv"
+USERS_FILE = "users.csv"
+LOG_FILE = "mood_logs.csv"
 
 st.set_page_config(page_title="AI Mood Tracker", layout="centered")
 
-# --- Login ---
-st.sidebar.title("🔑 Login")
-username = st.sidebar.text_input("Username")
-password = st.sidebar.text_input("Password", type="password")
-if st.sidebar.button("Login"):
-    if username == "admin" and password == "admin123":
-        st.session_state["logged_in"] = True
-    else:
-        st.sidebar.error("Invalid credentials")
+# --- Initialize CSV files if not exist ---
+if not os.path.exists(USERS_FILE):
+    pd.DataFrame(columns=["username","password"]).to_csv(USERS_FILE, index=False)
 
-if not st.session_state.get("logged_in", False):
-    st.warning("Please log in to continue.")
+if not os.path.exists(LOG_FILE):
+    pd.DataFrame(columns=["username","timestamp","mood","ai_analysis"]).to_csv(LOG_FILE, index=False)
+
+# --- Authentication ---
+if "logged_in" not in st.session_state:
+    st.session_state["logged_in"] = False
+    st.session_state["username"] = ""
+
+st.sidebar.title("🔑 Login / Signup")
+option = st.sidebar.selectbox("Choose action:", ["Login","Signup"])
+
+username_input = st.sidebar.text_input("Username")
+password_input = st.sidebar.text_input("Password", type="password")
+
+if st.sidebar.button(option):
+    users_df = pd.read_csv(USERS_FILE)
+    if option == "Signup":
+        if username_input in users_df["username"].values:
+            st.sidebar.error("Username already exists.")
+        elif username_input.strip()=="" or password_input.strip()=="":
+            st.sidebar.error("Username and password required.")
+        else:
+            new_user = {"username": username_input, "password": password_input}
+            users_df = pd.concat([users_df, pd.DataFrame([new_user])], ignore_index=True)
+            users_df.to_csv(USERS_FILE, index=False)
+            st.sidebar.success("Signup successful! Please login.")
+    else:  # Login
+        if ((users_df["username"] == username_input) & (users_df["password"] == password_input)).any():
+            st.session_state["logged_in"] = True
+            st.session_state["username"] = username_input
+            st.sidebar.success(f"Logged in as {username_input}")
+        else:
+            st.sidebar.error("Invalid credentials")
+
+if not st.session_state["logged_in"]:
+    st.warning("Please login or signup to continue.")
     st.stop()
-
-# --- Load / create CSV ---
-if os.path.exists(CSV_FILE):
-    df = pd.read_csv(CSV_FILE)
-else:
-    df = pd.DataFrame(columns=["timestamp", "mood"])
-    df.to_csv(CSV_FILE, index=False)
 
 # --- Header ---
 st.markdown("""
 <h1 style='text-align:center;'>AI Mood Tracker</h1>
-<p style='text-align:center;'>Log your moods with emoji, AI insights, voice input, and PDF reports.</p>
+<p style='text-align:center;'>Write how you feel, and AI will give you helpful insights and solutions.</p>
 <hr>
 """, unsafe_allow_html=True)
 
 # --- Mood Input ---
-st.subheader("📝 Add Mood")
-
-# Emoji selector
-emoji_dict = {
-    "😊 Happy": "Happy",
-    "😢 Sad": "Sad",
-    "😡 Angry": "Angry",
-    "😱 Anxious": "Anxious",
-    "😴 Tired": "Tired",
-    "😌 Relaxed": "Relaxed"
-}
-emoji_choice = st.selectbox("Select your mood emoji:", list(emoji_dict.keys()))
-mood_text = emoji_dict[emoji_choice]
+st.subheader("📝 How are you feeling today?")
+mood_text = st.text_area("Write your paragraph here:", height=200)
 
 # Optional voice input
 audio_file = st.file_uploader("Or upload a voice recording (wav/mp3)", type=["wav","mp3"])
@@ -59,33 +70,46 @@ if audio_file:
     mood_text = transcribe_audio_file(audio_file)
     st.info(f"Transcribed voice: {mood_text}")
 
-# Save mood
-if st.button("Save Mood"):
-    new_row = {"timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "mood": mood_text}
-    df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
-    df.to_csv(CSV_FILE, index=False)
-    st.success("Mood saved successfully!")
+# Save mood and AI analysis
+if st.button("Analyze & Save"):
+    if mood_text.strip() == "":
+        st.error("Please enter your mood text.")
+    else:
+        ai_result = get_ai_mood_analysis(mood_text)
+        new_row = {
+            "username": st.session_state["username"],
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "mood": mood_text,
+            "ai_analysis": ai_result
+        }
+        logs_df = pd.read_csv(LOG_FILE)
+        logs_df = pd.concat([logs_df, pd.DataFrame([new_row])], ignore_index=True)
+        logs_df.to_csv(LOG_FILE, index=False)
+        st.success("Mood saved successfully!")
+        st.subheader("🤖 AI Analysis / Solution")
+        st.write(ai_result)
 
-    # AI Mood Explanation
-    explanation = get_mood_explanation(mood_text)
-    st.subheader("🤖 AI Mood Insight")
-    st.write(explanation)
+# --- Display user mood history ---
+st.subheader("📚 Your Mood History")
+logs_df = pd.read_csv(LOG_FILE)
+user_logs = logs_df[logs_df["username"] == st.session_state["username"]]
+if len(user_logs) > 0:
+    st.dataframe(user_logs[::-1], use_container_width=True)
+else:
+    st.info("No moods logged yet.")
 
-# --- View / Export ---
-st.subheader("📚 Mood History")
-st.dataframe(df[::-1], use_container_width=True)
-
+# --- Export PDF ---
 if st.button("📄 Download PDF Report"):
-    pdf_file = export_moods_to_pdf(CSV_FILE, "mood_report.pdf")
+    pdf_file = export_moods_to_pdf(LOG_FILE, f"{st.session_state['username']}_mood_report.pdf")
     with open(pdf_file, "rb") as f:
-        st.download_button("Download PDF", data=f, file_name="mood_report.pdf")
+        st.download_button("Download PDF", data=f, file_name=f"{st.session_state['username']}_mood_report.pdf")
 
-# --- Clear Data ---
-if st.button("❌ Clear All Data"):
-    df = pd.DataFrame(columns=["timestamp", "mood"])
-    df.to_csv(CSV_FILE, index=False)
-    st.warning("All mood logs cleared!")
+# --- Clear user data ---
+if st.button("❌ Clear My Mood Data"):
+    logs_df = logs_df[logs_df["username"] != st.session_state["username"]]
+    logs_df.to_csv(LOG_FILE, index=False)
+    st.warning("Your mood logs have been cleared.")
 
 # Footer
 st.markdown("<hr>", unsafe_allow_html=True)
-st.markdown("<p style='text-align:center;'>Developed with ❤️ using Streamlit</p>", unsafe_allow_html=True)
+st.markdown("<p style='text-align:center;'>Developed with ❤️ using Streamlit & OpenAI</p>", unsafe_allow_html=True)
