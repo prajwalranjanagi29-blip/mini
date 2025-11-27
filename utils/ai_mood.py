@@ -15,9 +15,10 @@ def get_ai_mood_analysis(user_text: str) -> str:
                 {"role": "system", "content": "You are a helpful, empathetic assistant."},
                 {"role": "user", "content": f"User wrote: '{user_text}'. Provide a short, supportive insight and suggestions."}
             ],
-            max_tokens=150,
+            max_tokens=100,
             temperature=0.7
         )
         return response.choices[0].message.content.strip()
     except Exception as e:
         return f"AI analysis not available: {e}"
+
