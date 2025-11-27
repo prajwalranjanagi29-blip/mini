@@ -1,20 +1,24 @@
 import openai
 import os
 
-# Set your OpenAI API key as environment variable OPENAI_API_KEY
+# Set your OpenAI API key as environment variable
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
-def get_ai_mood_analysis(user_text):
+def get_ai_mood_analysis(user_text: str) -> str:
     """
-    Generate AI explanation / solution for user's mood paragraph.
+    Generate AI explanation / solution for user's mood paragraph
+    using OpenAI Chat Completions API (works with openai>=1.0.0)
     """
     try:
-        prompt = f"User wrote about their mood: '{user_text}'. Analyze and provide a short, helpful, empathetic insight."
-        response = openai.Completion.create(
-            engine="text-davinci-003",
-            prompt=prompt,
-            max_tokens=100
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",  # Or gpt-4 if available
+            messages=[
+                {"role": "system", "content": "You are a helpful, empathetic assistant."},
+                {"role": "user", "content": f"User wrote about their mood: '{user_text}'. Provide a short, supportive insight and suggestions."}
+            ],
+            max_tokens=150,
+            temperature=0.7
         )
-        return response.choices[0].text.strip()
+        return response.choices[0].message.content.strip()
     except Exception as e:
         return f"AI analysis not available: {e}"
