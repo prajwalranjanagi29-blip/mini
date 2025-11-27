@@ -1,6 +1,6 @@
+openai>=1.0.0
 streamlit
 pandas
 plotly
 reportlab
 SpeechRecognition
-openai
